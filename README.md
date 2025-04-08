@@ -1,6 +1,6 @@
-# 📱 Fluffy - Local AI Chat Interface
+# 📱 Fluffy - Fluffy – Host, Chat, and Switch any LLMs
 
-A sleek, WhatsApp-style desktop application for interacting with local AI models through Ollama. Built with Python and CustomTkinter.
+Host and chat with any LLM locally using Ollama and Python, all within a sleek, fully offline interface. Fluffy enables seamless model management, context-aware responses, and real-time performance tracking—no internet needed.
 
 
   <tr>
@@ -17,6 +17,7 @@ A sleek, WhatsApp-style desktop application for interacting with local AI models
   - Auto-detection of available models
   - Real-time response streaming
   - Context-aware conversations (toggleable)
+  - One-click model switching
 <table>
   <tr>
     <td><img src="screenshots/Detect Available Models.png" alt="Model error" height="200" width="355"></td>
@@ -42,13 +43,36 @@ A sleek, WhatsApp-style desktop application for interacting with local AI models
   - Smooth scrolling
   - Dark mode support
 
+
+---
+
 ## 🚀 Getting Started
 
-### Prerequisites
+### 📦 Prerequisites
+
+Make sure you have the following installed:
+
+- [Python 3.10+](https://www.python.org/)
+- [Ollama](https://ollama.com/)
+- `pip` for Python packages
+
+### 🛠️ Installation
 
 ```bash
-# Install Ollama
-curl https://ollama.ai/install.sh | sh
+# Clone the repo
+git clone https://github.com/yourusername/fluffy-ai-chat.git
+cd fluffy-ai-chat
 
-# Install required Python packages
+# Install dependencies
 pip install -r requirements.txt
+```
+
+### 🧠 Download a Model (if not already)
+
+Before launching Fluffy, make sure at least one LLM is available locally via Ollama. You can pull a model using:
+
+```bash
+ollama pull deepseek-coder:1.5b
+# or try others like:
+# ollama pull llama3
+# ollama pull mistral
