@@ -60,8 +60,8 @@ Make sure you have the following installed:
 
 ```bash
 # Clone the repo
-git clone https://github.com/yourusername/fluffy-ai-chat.git
-cd fluffy-ai-chat
+git clone https://github.com/tanaykohale/fluffy.git
+cd fluffy
 
 # Install dependencies
 pip install -r requirements.txt
