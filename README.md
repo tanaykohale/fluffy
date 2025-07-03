@@ -1,4 +1,4 @@
-# 📱 Fluffy - Fluffy – Host, Chat, and Switch any LLMs
+# 📱 Fluffy – Host, Chat, and Switch any LLMs
 
 Host and chat with any LLM locally using Ollama and Python, all within a sleek, fully offline interface. Fluffy enables seamless model management, context-aware responses, and real-time performance tracking—no internet needed.
 
