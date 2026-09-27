@@ -1,65 +1,96 @@
-import requests
+"""Thin, synchronous client for the local Ollama HTTP API.
+
+Everything goes through one ``requests.Session`` so tests can swap it for a fake.
+"""
 import json
-import asyncio
-import aiohttp
+
+import requests
+
+
+class OllamaError(RuntimeError):
+    """Raised when Ollama is unreachable or returns an error."""
+
 
 class OllamaService:
-    BASE_URL = "http://localhost:11434/api"
+    DEFAULT_URL = "http://localhost:11434"
 
-    def __init__(self, default_model=None):
-        self.default_model = default_model
-        self.available_models = self.get_available_models()
+    def __init__(self, base_url=DEFAULT_URL, session=None, timeout=120):
+        self.base_url = base_url.rstrip("/")
+        self.session = session or requests.Session()
+        self.timeout = timeout
 
+    # ---------- models ----------
     def get_available_models(self):
+        """Return installed model names, or [] if Ollama is not reachable."""
         try:
-            response = requests.get(f"{self.BASE_URL}/tags")
-            models = [model['name'] for model in response.json().get('models', [])]
-            return models if models else ["No models found"]
-        except Exception as e:
-            print(f"Error fetching models: {e}")
-            return ["Error loading models"]
+            r = self.session.get(f"{self.base_url}/api/tags", timeout=5)
+            r.raise_for_status()
+            return [m["name"] for m in r.json().get("models", [])]
+        except (requests.RequestException, ValueError, KeyError):
+            return []
 
-    async def generate_response_async(self, model, prompt, stream=False):
-        """
-        Async method for generating responses
-        """
-        url = f"{self.BASE_URL}/generate"
-        data = {
-            "model": model or self.default_model,
-            "prompt": prompt,
-            "stream": stream
-        }
-        
+    def is_running(self):
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=data) as response:
-                    if stream:
-                        return self._stream_response(response)
-                    else:
-                        return await response.json()
-        except Exception as e:
-            print(f"Error generating response: {e}")
-            return None
+            self.session.get(f"{self.base_url}/api/tags", timeout=2).raise_for_status()
+            return True
+        except requests.RequestException:
+            return False
 
-    def _stream_response(self, response):
+    # ---------- generation ----------
+    def stream_chat(self, model, messages):
+        """Yield response text chunks from /api/chat (streaming).
+
+        ``messages`` is a list of {"role": "system"|"user"|"assistant", "content": str}.
         """
-        Generator for streaming responses
-        """
-        for line in response.iter_lines():
-            if line:
-                try:
-                    json_response = json.loads(line.decode('utf-8'))
-                    if 'response' in json_response:
-                        yield json_response['response']
-                    
-                    if json_response.get('done', False):
+        if not model:
+            raise OllamaError("No model selected.")
+        payload = {"model": model, "messages": messages, "stream": True}
+        try:
+            with self.session.post(
+                f"{self.base_url}/api/chat", json=payload, stream=True, timeout=self.timeout
+            ) as r:
+                r.raise_for_status()
+                for line in r.iter_lines():
+                    if not line:
+                        continue
+                    data = json.loads(line)
+                    if "error" in data:
+                        raise OllamaError(data["error"])
+                    chunk = data.get("message", {}).get("content", "")
+                    if chunk:
+                        yield chunk
+                    if data.get("done"):
                         break
-                except Exception as e:
-                    print(f"Error parsing response: {e}")
-                    break
+        except requests.RequestException as e:
+            raise OllamaError(f"Could not reach Ollama at {self.base_url}: {e}") from e
 
-    def generate_response(self, model, prompt, stream=False):
-        """
-        Synchronous wrapper for async method
-        """
-        return asyncio.run(self.generate_response_async(model, prompt, stream))
+    def chat(self, model, messages):
+        """Non-streaming convenience wrapper: returns the full reply text."""
+        return "".join(self.stream_chat(model, messages))
+
+    # ---------- embeddings (used by RAG) ----------
+    def embed(self, model, texts):
+        """Return one embedding vector per input text."""
+        if isinstance(texts, str):
+            texts = [texts]
+        try:
+            r = self.session.post(
+                f"{self.base_url}/api/embed",
+                json={"model": model, "input": texts},
+                timeout=self.timeout,
+            )
+            if r.status_code == 404:  # older Ollama: one text per call
+                return [self._embed_legacy(model, t) for t in texts]
+            r.raise_for_status()
+            return r.json()["embeddings"]
+        except requests.RequestException as e:
+            raise OllamaError(f"Embedding failed: {e}") from e
+
+    def _embed_legacy(self, model, text):
+        r = self.session.post(
+            f"{self.base_url}/api/embeddings",
+            json={"model": model, "prompt": text},
+            timeout=self.timeout,
+        )
+        r.raise_for_status()
+        return r.json()["embedding"]

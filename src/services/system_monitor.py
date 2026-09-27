@@ -1,29 +1,31 @@
-import psutil
 import threading
-import time
+
+import psutil
+
 
 class SystemMonitor:
-    def __init__(self):
-        self.cpu_usage = 0
-        self.ram_usage = 0
-        self._stop_monitoring = False
+    """Polls CPU/RAM once per interval on a daemon thread and reports via callback."""
+
+    def __init__(self, interval=1.0):
+        self.interval = interval
+        self.cpu_usage = 0.0
+        self.ram_usage = 0.0
+        self._stop = threading.Event()
+        self._thread = None
+
+    def sample(self):
+        self.cpu_usage = psutil.cpu_percent()
+        self.ram_usage = psutil.virtual_memory().percent
+        return self.cpu_usage, self.ram_usage
 
     def start_monitoring(self, update_callback):
-        def monitor():
-            while not self._stop_monitoring:
-                self.cpu_usage = psutil.cpu_percent()
-                self.ram_usage = psutil.virtual_memory().percent
-                
-                # Call update callback with current stats
-                update_callback(self.cpu_usage, self.ram_usage)
-                
-                time.sleep(1)
+        def loop():
+            while not self._stop.is_set():
+                update_callback(*self.sample())
+                self._stop.wait(self.interval)
 
-        # Start monitoring in a separate thread
-        self.monitor_thread = threading.Thread(target=monitor, daemon=True)
-        self.monitor_thread.start()
+        self._thread = threading.Thread(target=loop, daemon=True)
+        self._thread.start()
 
     def stop_monitoring(self):
-        self._stop_monitoring = True
-        if hasattr(self, 'monitor_thread'):
-            self.monitor_thread.join()
+        self._stop.set()

@@ -1,130 +1,113 @@
-import customtkinter as ctk
 import tkinter as tk
+from tkinter import filedialog
+
+import customtkinter as ctk
+
+NO_MODELS = "No models found"
+
 
 class Sidebar:
-    def __init__(self, parent, ollama_service, chat_manager, new_chat_callback, chat_select_callback):
-        self.parent = parent
-        self.ollama_service = ollama_service
-        self.chat_manager = chat_manager
-        self.new_chat_callback = new_chat_callback
-        self.chat_select_callback = chat_select_callback
+    def __init__(self, parent, app):
+        self.app = app  # FluffyMainWindow: owns services + callbacks
+        self.frame = ctk.CTkFrame(parent, width=260)
+        self.chat_buttons = {}
 
-        # Main sidebar frame
-        self.frame = ctk.CTkFrame(parent, width=250)
-
-        # Model Selection
-        self.create_model_section()
-
-        # System Monitor
-        self.create_system_monitor()
-
-        # Chat Management
-        self.create_chat_management()
-
-        # Context Awareness
-        self.create_context_switch()
-
-    def create_model_section(self):
-        # Model Selection Label
-        model_label = ctk.CTkLabel(self.frame, text="Model Selection", font=("Arial", 16, "bold"))
-        model_label.pack(pady=(10,5))
-
-        # Model Dropdown
-        available_models = self.ollama_service.get_available_models()
-        self.model_menu = ctk.CTkOptionMenu(
-            self.frame, 
-            values=available_models,
-            command=self.on_model_change
-        )
+        self._section("Model")
+        self.model_menu = ctk.CTkOptionMenu(self.frame, values=[NO_MODELS])
         self.model_menu.pack(padx=10, pady=5)
-
-    def create_system_monitor(self):
-        # System Monitor Label
-        system_label = ctk.CTkLabel(self.frame, text="System Monitor", font=("Arial", 16, "bold"))
-        system_label.pack(pady=(10,5))
-
-        # CPU Usage
-        self.cpu_label = ctk.CTkLabel(self.frame, text="CPU: 0%")
-        self.cpu_label.pack(pady=2)
-
-        # RAM Usage
-        self.ram_label = ctk.CTkLabel(self.frame, text="RAM: 0%")
-        self.ram_label.pack(pady=2)
-
-    def create_chat_management(self):
-        # Chat Management Label
-        chat_label = ctk.CTkLabel(self.frame, text="Chats", font=("Arial", 16, "bold"))
-        chat_label.pack(pady=(10,5))
-
-        # New Chat Button
-        new_chat_button = ctk.CTkButton(
-            self.frame, 
-            text="New Chat", 
-            command=self.new_chat_callback
+        ctk.CTkButton(self.frame, text="Refresh models", command=self.refresh_models).pack(
+            padx=10, pady=(0, 5)
         )
-        new_chat_button.pack(padx=10, pady=5)
 
-        # Chat List Frame
-        self.chat_list_frame = ctk.CTkScrollableFrame(self.frame)
+        self._section("System")
+        self.cpu_label = ctk.CTkLabel(self.frame, text="CPU: --")
+        self.cpu_label.pack()
+        self.ram_label = ctk.CTkLabel(self.frame, text="RAM: --")
+        self.ram_label.pack()
+
+        self._section("Chats")
+        ctk.CTkButton(self.frame, text="+ New chat", command=app.on_new_chat).pack(padx=10, pady=5)
+        self.chat_list_frame = ctk.CTkScrollableFrame(self.frame, height=180)
         self.chat_list_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
-    def create_context_switch(self):
-        # Context Awareness Label
-        context_label = ctk.CTkLabel(self.frame, text="Context Awareness", font=("Arial", 16, "bold"))
-        context_label.pack(pady=(10,5))
-
-        # Context Switch
+        self._section("Options")
         self.context_switch = ctk.CTkSwitch(
-            self.frame, 
-            text="Keep Context", 
-            command=self.on_context_toggle
+            self.frame, text="Keep context", command=self._on_context_toggle
         )
-        self.context_switch.pack(pady=5)
+        self.context_switch.select()
+        self.context_switch.pack(pady=3)
 
-    def add_chat_button(self, chat_name):
-        # Create a button for each chat
-        chat_button = ctk.CTkButton(
-            self.chat_list_frame, 
-            text=chat_name,
-            command=lambda name=chat_name: self.chat_select_callback(name)
+        self.rag_switch = ctk.CTkSwitch(self.frame, text="Use my files (RAG)")
+        self.rag_switch.pack(pady=3)
+        ctk.CTkButton(self.frame, text="Add files to knowledge", command=self._add_files).pack(
+            padx=10, pady=3
         )
-        chat_button.pack(fill="x", padx=5, pady=2)
+        self.rag_label = ctk.CTkLabel(self.frame, text="", wraplength=220, justify="left")
+        self.rag_label.pack(padx=10, pady=(0, 8))
 
-        # Right-click menu
-        chat_button.bind("<Button-3>", lambda e, name=chat_name: self.show_chat_menu(e, name, chat_button))
+        self.refresh_models()
+        self.update_rag_label()
 
-    def show_chat_menu(self, event, chat_name, button):
-        # Context menu for chat buttons
+    def _section(self, title):
+        ctk.CTkLabel(self.frame, text=title, font=("Arial", 15, "bold")).pack(pady=(10, 4))
+
+    # ---------- models ----------
+    def refresh_models(self):
+        models = self.app.ollama.get_available_models() or [NO_MODELS]
+        self.model_menu.configure(values=models)
+        self.model_menu.set(models[0])
+
+    def get_current_model(self):
+        m = self.model_menu.get()
+        return None if m == NO_MODELS else m
+
+    # ---------- system monitor ----------
+    def update_system_stats(self, cpu, ram):
+        self.cpu_label.configure(text=f"CPU: {cpu:.0f}%")
+        self.ram_label.configure(text=f"RAM: {ram:.0f}%")
+
+    # ---------- chats ----------
+    def add_chat_button(self, chat_id, name):
+        btn = ctk.CTkButton(
+            self.chat_list_frame, text=name, command=lambda: self.app.on_chat_selected(chat_id)
+        )
+        btn.pack(fill="x", padx=5, pady=2)
+        btn.bind("<Button-3>", lambda e: self._chat_menu(e, chat_id))
+        self.chat_buttons[chat_id] = btn
+
+    def _chat_menu(self, event, chat_id):
         menu = tk.Menu(self.frame, tearoff=0)
-        menu.add_command(label="Rename", command=lambda: self.rename_chat(chat_name, button))
-        menu.add_command(label="Delete", command=lambda: self.delete_chat(chat_name, button))
+        menu.add_command(label="Rename", command=lambda: self._rename(chat_id))
+        menu.add_command(label="Delete", command=lambda: self.app.on_delete_chat(chat_id))
         menu.tk_popup(event.x_root, event.y_root)
 
-    def rename_chat(self, chat_name, button):
-        # Rename chat dialog
-        dialog = ctk.CTkInputDialog(text="Enter new name:", title="Rename Chat")
-        new_name = dialog.get_input()
-        
-        if new_name and new_name.strip():
-            # Update button text
-            button.configure(text=new_name)
+    def _rename(self, chat_id):
+        name = ctk.CTkInputDialog(text="New name:", title="Rename chat").get_input()
+        if self.app.chats.rename_chat(chat_id, name):
+            self.chat_buttons[chat_id].configure(text=name.strip())
 
-    def delete_chat(self, chat_name, button):
-        # Remove chat from manager and UI
-        if chat_name in self.chat_manager.chats:
-            del self.chat_manager.chats[chat_name]
-        button.destroy()
+    def remove_chat_button(self, chat_id):
+        btn = self.chat_buttons.pop(chat_id, None)
+        if btn:
+            btn.destroy()
 
-    def on_model_change(self, model_name):
-        # Handle model selection
-        print(f"Selected model: {model_name}")
+    def _on_context_toggle(self):
+        self.app.chats.toggle_context(self.context_switch.get())
 
-    def on_context_toggle(self):
-        # Toggle context awareness
-        enabled = self.context_switch.get()
-        self.chat_manager.toggle_context(enabled)
+    # ---------- RAG ----------
+    def rag_enabled(self):
+        return bool(self.rag_switch.get())
 
-    def update_system_stats(self, cpu_usage, ram_usage):
-        # Update system monitor labels
-        self.cpu_label.configure(text=f"CPU: {cpu_usage}%")
-        self.ram_label.configure(text=f"RAM: {ram_usage}%")
+    def _add_files(self):
+        paths = filedialog.askopenfilenames(
+            title="Add files",
+            filetypes=[("Documents", "*.txt *.md *.pdf *.py *.csv *.json"), ("All", "*.*")],
+        )
+        if paths:
+            self.app.on_add_files(paths)
+
+    def update_rag_label(self, text=None):
+        if text is None:
+            srcs = self.app.rag.sources()
+            text = f"{len(srcs)} file(s) indexed" if srcs else "No files indexed"
+        self.rag_label.configure(text=text)

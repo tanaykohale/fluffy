@@ -1,152 +1,70 @@
-import asyncio
 import customtkinter as ctk
 
+LABELS = {"user": "You", "assistant": "Fluffy"}
+
+
 class ChatDisplay:
-    def __init__(self, parent, chat_manager):
-        self.parent = parent
-        self.chat_manager = chat_manager
-        self.ollama_service = ollama_service
-        
-        # Main chat display frame
+    def __init__(self, parent, on_send):
         self.frame = ctk.CTkFrame(parent)
 
-        # Chat title
-        self.chat_title = ctk.CTkLabel(
-            self.frame, 
-            text="Select a chat", 
-            font=("Arial", 16, "bold")
-        )
-        self.chat_title.pack(pady=10)
+        self.title = ctk.CTkLabel(self.frame, text="New chat", font=("Arial", 16, "bold"))
+        self.title.pack(pady=10)
 
-        # Chat text display
-        self.chat_text = ctk.CTkTextbox(
-            self.frame, 
-            wrap="word", 
-            state="disabled"
-        )
-        self.chat_text.pack(fill="both", expand=True, padx=10, pady=10)
+        self.text = ctk.CTkTextbox(self.frame, wrap="word", state="disabled")
+        self.text.pack(fill="both", expand=True, padx=10, pady=10)
+        self.text.tag_config("user", foreground="#7cc4ff")
+        self.text.tag_config("assistant", foreground="#e6e6e6")
+        self.text.tag_config("meta", foreground="#8a8a8a")
 
-        # Message input area
-        self.input_frame = ctk.CTkFrame(self.frame)
-        self.input_frame.pack(fill="x", padx=10, pady=10)
+        self.progress = ctk.CTkProgressBar(self.frame, mode="indeterminate")
+        self.progress.pack(fill="x", padx=10)
+        self.progress.set(0)
 
-        self.message_entry = ctk.CTkEntry(
-            self.input_frame, 
-            placeholder_text="Type a message...",
-            width=500
-        )
-        self.message_entry.pack(side="left", expand=True, padx=(0,10))
+        row = ctk.CTkFrame(self.frame)
+        row.pack(fill="x", padx=10, pady=10)
+        self.entry = ctk.CTkEntry(row, placeholder_text="Type a message...")
+        self.entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        self.send_btn = ctk.CTkButton(row, text="Send", command=lambda: on_send(self.take_input()))
+        self.send_btn.pack(side="right")
+        self.entry.bind("<Return>", lambda e: on_send(self.take_input()))
 
-        self.send_button = ctk.CTkButton(
-            self.input_frame, 
-            text="Send", 
-            command=self.send_message
-        )
-        self.send_button.pack(side="right")
+    def take_input(self):
+        msg = self.entry.get().strip()
+        self.entry.delete(0, "end")
+        return msg
 
-        # Bind enter key to send message
-        self.message_entry.bind("<Return>", lambda event: self.send_message())
+    def set_busy(self, busy):
+        self.send_btn.configure(state="disabled" if busy else "normal")
+        if busy:
+            self.progress.start()
+        else:
+            self.progress.stop()
+            self.progress.set(0)
 
-        # Add a progress bar for AI response
-        self.progress_bar = ctk.CTkProgressBar(self.frame)
-        self.progress_bar.pack(fill="x", padx=10, pady=(0,5))
-        self.progress_bar.set(0)
-        self.progress_bar.configure(mode="indeterminate")
+    def show_chat(self, name, messages):
+        self.title.configure(text=name)
+        self._edit(lambda: self.text.delete("1.0", "end"))
+        for m in messages:
+            self.append_message(m["sender"], m["message"], m.get("timestamp", ""))
 
+    def append_message(self, sender, message, timestamp=""):
+        def do():
+            self.text.insert("end", f"{LABELS.get(sender, sender)}  {timestamp}\n", "meta")
+            self.text.insert("end", message + "\n\n", sender)
+        self._edit(do)
 
+    # streaming: header once, then chunks
+    def start_stream(self):
+        self._edit(lambda: self.text.insert("end", "Fluffy\n", "meta"))
 
-    def load_chat(self, chat_name):
-        # Update chat title
-        self.chat_title.configure(text=f"Chat: {chat_name}")
+    def stream_chunk(self, chunk):
+        self._edit(lambda: self.text.insert("end", chunk, "assistant"))
 
-        # Clear existing text
-        self.chat_text.configure(state="normal")
-        self.chat_text.delete("1.0", "end")
+    def end_stream(self):
+        self._edit(lambda: self.text.insert("end", "\n\n"))
 
-        # Load chat messages
-        if chat_name in self.chat_manager.chats:
-            for msg in self.chat_manager.chats[chat_name]:
-                self.display_message(msg)
-
-        self.chat_text.configure(state="disabled")
-        self.scroll_to_bottom()
-
-    async def generate_ai_response(self, message):
-        """
-        Async method to generate AI response
-        """
-        try:
-            # Show progress bar
-            self.progress_bar.start()
-            
-            # Generate response
-            model = self.parent.sidebar.get_current_model()
-            context = self.chat_manager.get_conversation_context()
-            full_prompt = f"{context}\nUser: {message}\nAssistant:"
-            
-            response = await self.ollama_service.generate_response_async(
-                model, 
-                full_prompt, 
-                stream=True
-            )
-            
-            # Collect full response
-            ai_response = ""
-            for token in response:
-                ai_response += token
-                # Optionally update UI with streaming tokens
-                self.update_ai_response_preview(ai_response)
-            
-            # Add AI response to chat
-            self.chat_manager.add_message("Assistant", ai_response)
-            self.display_message(
-                self.chat_manager.chats[self.chat_manager.current_chat]['messages'][-1]
-            )
-        except Exception as e:
-            print(f"Error generating AI response: {e}")
-        finally:
-            # Stop progress bar
-            self.progress_bar.stop()
-            self.progress_bar.set(0)
-
-    def send_message(self):
-        message = self.message_entry.get().strip()
-        if not message:
-            return
-
-        # Add user message
-        self.chat_manager.add_message("You", message)
-        self.display_message(
-            self.chat_manager.chats[self.chat_manager.current_chat]['messages'][-1]
-        )
-
-        # Clear input
-        self.message_entry.delete(0, "end")
-
-        # Generate AI response in a separate thread
-        asyncio.run(self.generate_ai_response(message))
-
-    def update_ai_response_preview(self, partial_response):
-        """
-        Update UI with partial AI response (optional)
-        """
-        # Implement a method to show real-time AI response if desired
-        pass
-
-    def display_message(self, message):
-        self.chat_text.configure(state="normal")
-        
-        # Format message display
-        formatted_msg = (
-            f"[{message['timestamp']}] "
-            f"{message['sender']}: {message['message']}\n"
-        )
-        
-        self.chat_text.insert("end", formatted_msg)
-        self.chat_text.configure(state="disabled")
-        self.scroll_to_bottom()
-
-    def scroll_to_bottom(self):
-        self.chat_text.see("end")
-
-
+    def _edit(self, fn):
+        self.text.configure(state="normal")
+        fn()
+        self.text.configure(state="disabled")
+        self.text.see("end")
